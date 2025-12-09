@@ -15,24 +15,11 @@ const services = [
   'Other'
 ]
 
-const neighborhoods = [
-  'Rogers Park',
-  'Wicker Park',
-  'Lincoln Park',
-  'Andersonville',
-  'Edgewater',
-  'Evanston',
-  'Skokie',
-  'Niles',
-  'Other'
-]
-
 function LeadForm({ service, onClose }) {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     email: '',
-    neighborhood: '',
     address: '',
     service: service?.title || '',
     message: ''
@@ -218,23 +205,6 @@ function LeadForm({ service, onClose }) {
                   className="w-full px-4 py-3.5 rounded-xl border border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all text-stone-900 text-base"
                   placeholder="you@email.com"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-stone-700 mb-1.5">Neighborhood</label>
-                <select
-                  name="neighborhood"
-                  required
-                  value={formData.neighborhood}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3.5 rounded-xl border border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all text-stone-900 bg-white text-base appearance-none"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a8a29e'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
-                >
-                  <option value="">Select your area...</option>
-                  {neighborhoods.map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
               </div>
 
               <div>
