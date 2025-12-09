@@ -8,17 +8,65 @@ function Admin() {
   const navigate = useNavigate()
   const [leads, setLeads] = useState([])
   const [providers, setProviders] = useState([])
+  const [businesses, setBusinesses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedLead, setSelectedLead] = useState(null)
   const [forwardModal, setForwardModal] = useState(false)
+  const [priceModal, setPriceModal] = useState(false)
   const [selectedProviderId, setSelectedProviderId] = useState('')
   const [forwardMethod, setForwardMethod] = useState('email')
   const [stats, setStats] = useState({ total: 0, new: 0, contacted: 0, converted: 0 })
+  const [priceForm, setPriceForm] = useState({ price: '', priceDescription: '', message: '', businessId: '', validUntil: '' })
 
   useEffect(() => {
     fetchLeads()
     fetchProviders()
+    fetchBusinesses()
   }, [token])
+
+  const fetchBusinesses = async () => {
+    try {
+      const response = await fetch('/api/businesses', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setBusinesses(data.businesses || [])
+      }
+    } catch (error) {
+      console.error('Error fetching businesses:', error)
+    }
+  }
+
+  const handleSendPrice = async () => {
+    if (!selectedLead || !priceForm.price) return
+
+    try {
+      const response = await fetch(`/api/quotes/${selectedLead.id}/responses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          price: parseFloat(priceForm.price),
+          priceDescription: priceForm.priceDescription,
+          message: priceForm.message,
+          businessId: priceForm.businessId || null,
+          validUntil: priceForm.validUntil || null
+        })
+      })
+
+      if (response.ok) {
+        setPriceModal(false)
+        setSelectedLead(null)
+        setPriceForm({ price: '', priceDescription: '', message: '', businessId: '', validUntil: '' })
+        fetchLeads()
+      }
+    } catch (error) {
+      console.error('Error sending price:', error)
+    }
+  }
 
   const fetchProviders = async () => {
     try {
@@ -143,22 +191,32 @@ function Admin() {
                 <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Manage leads and track performance</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Link to="/" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg active:scale-95">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <Link to="/admin/analytics" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg whitespace-nowrap">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span className="hidden sm:inline">Analytics</span>
+              </Link>
+              <Link to="/admin/businesses" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg whitespace-nowrap">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span className="hidden sm:inline">Businesses</span>
+              </Link>
+              <Link to="/" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg whitespace-nowrap">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
-                <span className="hidden sm:inline">Back to Site</span>
-                <span className="sm:hidden">Site</span>
+                <span className="hidden sm:inline">Site</span>
               </Link>
               <button
                 onClick={handleLogout}
-                className="text-red-600 hover:text-red-700 font-medium text-sm flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg active:scale-95 transition-colors"
+                className="text-red-600 hover:text-red-700 font-medium text-sm flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg whitespace-nowrap transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
-                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           </div>
@@ -240,24 +298,34 @@ function Admin() {
                       <button
                         onClick={() => {
                           setSelectedLead(lead)
+                          setPriceModal(true)
+                        }}
+                        className="flex-1 bg-green-500 text-white py-2 px-3 rounded-lg text-sm font-semibold active:scale-[0.98]"
+                      >
+                        Send Price
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedLead(lead)
                           setForwardModal(true)
                         }}
                         className="flex-1 bg-orange-500 text-white py-2 px-3 rounded-lg text-sm font-semibold active:scale-[0.98]"
                       >
-                        Forward Lead
+                        Forward
                       </button>
-                      <select
-                        value={lead.status}
-                        onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
-                        className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white"
-                      >
-                        <option value="new">New</option>
-                        <option value="in_review">In Review</option>
-                        <option value="accepted">Accepted</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
                     </div>
+                    <select
+                      value={lead.status}
+                      onChange={(e) => updateLeadStatus(lead.id, e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white mt-2"
+                    >
+                      <option value="new">New</option>
+                      <option value="in_review">In Review</option>
+                      <option value="accepted">Accepted</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="completed">Completed</option>
+                      <option value="closed">Closed</option>
+                    </select>
                   </div>
                 ))}
               </div>
@@ -304,6 +372,15 @@ function Admin() {
                             <button
                               onClick={() => {
                                 setSelectedLead(lead)
+                                setPriceModal(true)
+                              }}
+                              className="text-green-600 hover:text-green-700 font-medium text-sm"
+                            >
+                              Send Price
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedLead(lead)
                                 setForwardModal(true)
                               }}
                               className="text-orange-600 hover:text-orange-700 font-medium text-sm"
@@ -318,8 +395,9 @@ function Admin() {
                               <option value="new">New</option>
                               <option value="in_review">In Review</option>
                               <option value="accepted">Accepted</option>
+                              <option value="scheduled">Scheduled</option>
                               <option value="completed">Completed</option>
-                              <option value="cancelled">Cancelled</option>
+                              <option value="closed">Closed</option>
                             </select>
                           </div>
                         </td>
@@ -436,6 +514,138 @@ function Admin() {
                   className="flex-1 py-3.5 px-4 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 active:scale-[0.98]"
                 >
                   Send Lead
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes slide-up {
+              from { transform: translateY(100%); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+            @media (min-width: 640px) {
+              @keyframes slide-up {
+                from { transform: translateY(20px) scale(0.95); opacity: 0; }
+                to { transform: translateY(0) scale(1); opacity: 1; }
+              }
+            }
+            .animate-slide-up { animation: slide-up 0.3s ease-out; }
+          `}</style>
+        </div>
+      )}
+
+      {/* Price Modal */}
+      {priceModal && selectedLead && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPriceModal(false)} />
+          <div className="relative bg-white w-full sm:max-w-md sm:mx-4 sm:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-hidden shadow-2xl animate-slide-up">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-100">
+              <div>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900">Send Price Quote</h3>
+                <p className="text-gray-500 text-xs sm:text-sm">Send a price to the customer</p>
+              </div>
+              <button
+                onClick={() => setPriceModal(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors active:scale-95"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+              {/* Lead Summary */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="font-semibold text-gray-900">{selectedLead.name}</div>
+                <div className="text-sm text-gray-600">{selectedLead.service_name || selectedLead.service}</div>
+                <div className="text-sm text-gray-500 mt-1">{selectedLead.address}</div>
+              </div>
+
+              {/* Price Input */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Price *</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-medium">$</span>
+                  <input
+                    type="number"
+                    value={priceForm.price}
+                    onChange={(e) => setPriceForm({ ...priceForm, price: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-4 py-3.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-base"
+                  />
+                </div>
+              </div>
+
+              {/* Price Description */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Price Description</label>
+                <input
+                  type="text"
+                  value={priceForm.priceDescription}
+                  onChange={(e) => setPriceForm({ ...priceForm, priceDescription: e.target.value })}
+                  placeholder="e.g., Includes labor and materials"
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-base"
+                />
+              </div>
+
+              {/* Message */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Message to Customer</label>
+                <textarea
+                  value={priceForm.message}
+                  onChange={(e) => setPriceForm({ ...priceForm, message: e.target.value })}
+                  placeholder="Add any notes or details about the quote..."
+                  rows={3}
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-base resize-none"
+                />
+              </div>
+
+              {/* Select Business */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Assign Business (Optional)</label>
+                <select
+                  value={priceForm.businessId}
+                  onChange={(e) => setPriceForm({ ...priceForm, businessId: e.target.value })}
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-base bg-white"
+                >
+                  <option value="">No specific business</option>
+                  {businesses.map(business => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Valid Until */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Quote Valid Until</label>
+                <input
+                  type="date"
+                  value={priceForm.validUntil}
+                  onChange={(e) => setPriceForm({ ...priceForm, validUntil: e.target.value })}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-500/20 outline-none text-base"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setPriceModal(false)}
+                  className="flex-1 py-3.5 px-4 rounded-xl border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 transition-colors active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendPrice}
+                  disabled={!priceForm.price}
+                  className="flex-1 py-3.5 px-4 rounded-xl bg-green-500 text-white font-semibold hover:bg-green-600 transition-colors disabled:opacity-50 active:scale-[0.98]"
+                >
+                  Send Quote
                 </button>
               </div>
             </div>

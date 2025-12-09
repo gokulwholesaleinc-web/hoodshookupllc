@@ -4,6 +4,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext.jsx'
 import App from './App.jsx'
 import Admin from './pages/Admin.jsx'
+import AdminAnalytics from './pages/AdminAnalytics.jsx'
+import AdminBusinesses from './pages/AdminBusinesses.jsx'
+import ApproveQuote from './pages/ApproveQuote.jsx'
+import ScheduleAppointment from './pages/ScheduleAppointment.jsx'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import UpdateBanner from './components/UpdateBanner.jsx'
@@ -55,6 +59,24 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/analytics"
+            element={
+              <ProtectedRoute adminOnly>
+                <AdminAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/businesses"
+            element={
+              <ProtectedRoute adminOnly>
+                <AdminBusinesses />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/approve/:responseId" element={<ApproveQuote />} />
+          <Route path="/schedule/:responseId" element={<ScheduleAppointment />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
