@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { LogoMark } from '../components/Logo'
+import { useAuth } from '../context/AuthContext'
 
 function Admin() {
+  const { token, logout } = useAuth()
+  const navigate = useNavigate()
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedLead, setSelectedLead] = useState(null)
@@ -12,20 +15,28 @@ function Admin() {
 
   useEffect(() => {
     fetchLeads()
-  }, [])
+  }, [token])
 
   const fetchLeads = async () => {
     try {
-      const response = await fetch('/api/leads')
+      const response = await fetch('/api/quotes', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.status === 401) {
+        logout()
+        navigate('/login')
+        return
+      }
       const data = await response.json()
-      setLeads(data.leads || [])
+      setLeads(data.quotes || [])
 
       // Calculate stats
-      const total = data.leads?.length || 0
-      const newCount = data.leads?.filter(l => l.status === 'new').length || 0
-      const contacted = data.leads?.filter(l => l.status === 'contacted').length || 0
-      const converted = data.leads?.filter(l => l.status === 'converted').length || 0
-      setStats({ total, new: newCount, contacted, converted })
+      const quotes = data.quotes || []
+      const total = quotes.length
+      const newCount = quotes.filter(l => l.status === 'new').length
+      const accepted = quotes.filter(l => l.status === 'accepted').length
+      const completed = quotes.filter(l => l.status === 'completed').length
+      setStats({ total, new: newCount, accepted, completed })
     } catch (error) {
       console.error('Error fetching leads:', error)
     } finally {
@@ -35,9 +46,12 @@ function Admin() {
 
   const updateLeadStatus = async (id, status) => {
     try {
-      await fetch(`/api/leads/${id}`, {
+      await fetch(`/api/quotes/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ status })
       })
       fetchLeads()
@@ -50,18 +64,20 @@ function Admin() {
     if (!selectedLead || !forwardData.contact) return
 
     try {
-      await fetch('/api/leads/forward', {
+      await fetch(`/api/quotes/${selectedLead.id}/forward`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          leadId: selectedLead.id,
           method: forwardData.method,
           contact: forwardData.contact
         })
       })
 
-      // Update status to contacted
-      await updateLeadStatus(selectedLead.id, 'contacted')
+      // Update status to in_review
+      await updateLeadStatus(selectedLead.id, 'in_review')
       setForwardModal(false)
       setSelectedLead(null)
       setForwardData({ method: 'email', contact: '' })
@@ -127,12 +143,12 @@ function Admin() {
             <div className="text-xs sm:text-sm text-gray-500 font-medium">New</div>
           </div>
           <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-            <div className="text-2xl sm:text-3xl font-black text-yellow-600">{stats.contacted}</div>
-            <div className="text-xs sm:text-sm text-gray-500 font-medium">Contacted</div>
+            <div className="text-2xl sm:text-3xl font-black text-yellow-600">{stats.accepted}</div>
+            <div className="text-xs sm:text-sm text-gray-500 font-medium">Accepted</div>
           </div>
           <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-            <div className="text-2xl sm:text-3xl font-black text-green-600">{stats.converted}</div>
-            <div className="text-xs sm:text-sm text-gray-500 font-medium">Converted</div>
+            <div className="text-2xl sm:text-3xl font-black text-green-600">{stats.completed}</div>
+            <div className="text-xs sm:text-sm text-gray-500 font-medium">Completed</div>
           </div>
         </div>
 
