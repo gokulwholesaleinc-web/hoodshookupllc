@@ -148,6 +148,151 @@ CREATE TABLE IF NOT EXISTS quote_images (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Business Categories
+CREATE TABLE IF NOT EXISTS business_categories (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  description TEXT,
+  icon VARCHAR(50),
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Businesses (enhanced provider directory)
+CREATE TABLE IF NOT EXISTS businesses (
+  id SERIAL PRIMARY KEY,
+  category_id INTEGER REFERENCES business_categories(id),
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  address TEXT,
+  city VARCHAR(100),
+  state VARCHAR(50),
+  zip VARCHAR(20),
+  website VARCHAR(255),
+  logo_url VARCHAR(500),
+  service_radius_miles INTEGER DEFAULT 25,
+  accepts_new_leads BOOLEAN DEFAULT true,
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Business Hours (operating hours for each day)
+CREATE TABLE IF NOT EXISTS business_hours (
+  id SERIAL PRIMARY KEY,
+  business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
+  day_of_week INTEGER NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6), -- 0=Sunday, 6=Saturday
+  open_time TIME,
+  close_time TIME,
+  is_closed BOOLEAN DEFAULT false,
+  slot_duration_minutes INTEGER DEFAULT 120, -- 2 hour slots by default
+  UNIQUE(business_id, day_of_week)
+);
+
+-- Business Services (which services a business offers)
+CREATE TABLE IF NOT EXISTS business_services (
+  id SERIAL PRIMARY KEY,
+  business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
+  service_id INTEGER REFERENCES services(id) ON DELETE CASCADE,
+  base_price DECIMAL(10, 2),
+  price_description VARCHAR(255),
+  UNIQUE(business_id, service_id)
+);
+
+-- Quote Responses (admin sends price to customer)
+CREATE TABLE IF NOT EXISTS quote_responses (
+  id SERIAL PRIMARY KEY,
+  quote_id INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+  business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  price_description TEXT,
+  message TEXT,
+  valid_until DATE,
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  responded_by_user_id INTEGER REFERENCES users(id),
+  customer_responded_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Appointments (scheduled service times)
+CREATE TABLE IF NOT EXISTS appointments (
+  id SERIAL PRIMARY KEY,
+  quote_id INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+  quote_response_id INTEGER REFERENCES quote_responses(id) ON DELETE SET NULL,
+  business_id INTEGER REFERENCES businesses(id) ON DELETE SET NULL,
+  scheduled_date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled', 'no_show')),
+  customer_notes TEXT,
+  admin_notes TEXT,
+  reminder_sent BOOLEAN DEFAULT false,
+  confirmed_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  cancelled_at TIMESTAMP,
+  cancellation_reason TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Blocked Time Slots (for holidays, vacations, etc.)
+CREATE TABLE IF NOT EXISTS blocked_slots (
+  id SERIAL PRIMARY KEY,
+  business_id INTEGER REFERENCES businesses(id) ON DELETE CASCADE,
+  blocked_date DATE NOT NULL,
+  start_time TIME,
+  end_time TIME,
+  all_day BOOLEAN DEFAULT false,
+  reason VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Notification Templates
+CREATE TABLE IF NOT EXISTS notification_templates (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('email', 'sms')),
+  subject VARCHAR(255),
+  body TEXT NOT NULL,
+  variables TEXT, -- JSON array of available variables like {{customer_name}}, {{price}}, etc.
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Notification Log (audit trail for all sent notifications)
+CREATE TABLE IF NOT EXISTS notification_log (
+  id SERIAL PRIMARY KEY,
+  template_id INTEGER REFERENCES notification_templates(id),
+  type VARCHAR(20) NOT NULL CHECK (type IN ('email', 'sms')),
+  recipient VARCHAR(255) NOT NULL,
+  subject VARCHAR(255),
+  body TEXT NOT NULL,
+  related_entity_type VARCHAR(50), -- 'quote', 'appointment', 'quote_response', etc.
+  related_entity_id INTEGER,
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'delivered', 'failed', 'bounced')),
+  external_id VARCHAR(255), -- ID from Twilio/SendGrid
+  error_message TEXT,
+  sent_at TIMESTAMP,
+  delivered_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Activity/Audit Log (tracks all important actions)
+CREATE TABLE IF NOT EXISTS activity_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(50) NOT NULL, -- 'quote', 'appointment', 'business', etc.
+  entity_id INTEGER,
+  old_values JSONB,
+  new_values JSONB,
+  ip_address VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_contact_methods_user ON contact_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_contact_methods_normalized ON contact_methods(type, normalized_value);
@@ -159,3 +304,20 @@ CREATE INDEX IF NOT EXISTS idx_otp_tokens_contact ON otp_tokens(contact_method_i
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_quote_images_quote ON quote_images(quote_id);
 CREATE INDEX IF NOT EXISTS idx_quote_images_expires ON quote_images(expires_at);
+CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category_id);
+CREATE INDEX IF NOT EXISTS idx_businesses_active ON businesses(active);
+CREATE INDEX IF NOT EXISTS idx_business_hours_business ON business_hours(business_id);
+CREATE INDEX IF NOT EXISTS idx_business_services_business ON business_services(business_id);
+CREATE INDEX IF NOT EXISTS idx_quote_responses_quote ON quote_responses(quote_id);
+CREATE INDEX IF NOT EXISTS idx_quote_responses_status ON quote_responses(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_quote ON appointments(quote_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments(business_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_blocked_slots_business ON blocked_slots(business_id);
+CREATE INDEX IF NOT EXISTS idx_blocked_slots_date ON blocked_slots(blocked_date);
+CREATE INDEX IF NOT EXISTS idx_notification_log_entity ON notification_log(related_entity_type, related_entity_id);
+CREATE INDEX IF NOT EXISTS idx_notification_log_status ON notification_log(status);
+CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON activity_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
