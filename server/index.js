@@ -73,6 +73,62 @@ app.patch('/api/leads/:id', (req, res) => {
   res.json({ success: true, lead })
 })
 
+// Forward lead to service provider
+app.post('/api/leads/forward', (req, res) => {
+  const { leadId, method, contact } = req.body
+
+  const lead = leads.find(l => l.id === leadId)
+  if (!lead) {
+    return res.status(404).json({ error: 'Lead not found' })
+  }
+
+  // In production, this would send an email or SMS
+  // For now, just log and update the lead
+  console.log(`\n========== LEAD FORWARDED ==========`)
+  console.log(`Method: ${method.toUpperCase()}`)
+  console.log(`To: ${contact}`)
+  console.log(`---`)
+  console.log(`Customer: ${lead.name}`)
+  console.log(`Phone: ${lead.phone}`)
+  console.log(`Email: ${lead.email}`)
+  console.log(`Service: ${lead.service}`)
+  console.log(`Address: ${lead.address}`)
+  console.log(`Message: ${lead.message || 'N/A'}`)
+  console.log(`====================================\n`)
+
+  // Track forwarding
+  lead.forwardedTo = contact
+  lead.forwardedAt = new Date().toISOString()
+  lead.forwardMethod = method
+
+  res.json({ success: true, message: `Lead forwarded via ${method} to ${contact}` })
+})
+
+// Service providers (contacts to forward leads to)
+const serviceProviders = []
+
+// Add service provider
+app.post('/api/providers', (req, res) => {
+  const { name, email, phone, services } = req.body
+
+  const provider = {
+    id: Date.now().toString(),
+    name,
+    email,
+    phone,
+    services: services || [],
+    createdAt: new Date().toISOString()
+  }
+
+  serviceProviders.push(provider)
+  res.status(201).json({ success: true, provider })
+})
+
+// Get all providers
+app.get('/api/providers', (req, res) => {
+  res.json({ providers: serviceProviders })
+})
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)
 })
