@@ -1570,7 +1570,13 @@ app.post('/api/quotes/:quoteId/messages', requireAuth, async (req, res) => {
     )
 
     // Log activity
-    await analytics.logActivity(userId, 'message_sent', 'message', result.rows[0].id, null, { quote_id: quoteId })
+    await analytics.logActivity({
+      userId,
+      action: 'message_sent',
+      entityType: 'message',
+      entityId: result.rows[0].id,
+      newValues: { quote_id: quoteId }
+    })
 
     res.json({ message: result.rows[0] })
   } catch (err) {
