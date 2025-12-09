@@ -10,6 +10,7 @@ const { requireAuth, requireAdmin } = require('./middleware/auth')
 const { noCache, longCache, htmlCache } = require('./middleware/cache')
 const { upload, deleteFile, uploadDir } = require('./middleware/upload')
 const notifications = require('./services/notifications')
+const analytics = require('./services/analytics')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -98,8 +99,23 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       return res.status(401).json({ error: result.error })
     }
 
-    res.json({ 
-      success: true, 
+    // Log successful login
+    try {
+      await analytics.logActivity({
+        userId: result.userId,
+        action: 'user_login',
+        entityType: 'session',
+        entityId: result.userId,
+        newValues: { role: result.role },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      })
+    } catch (logErr) {
+      console.error('Failed to log login activity:', logErr)
+    }
+
+    res.json({
+      success: true,
       accessToken: result.accessToken,
       userId: result.userId,
       role: result.role
@@ -188,6 +204,21 @@ app.post('/api/quotes', async (req, res) => {
       })
     } catch (notifyErr) {
       console.error('Failed to send quote notification:', notifyErr)
+    }
+
+    // Log activity
+    try {
+      await analytics.logActivity({
+        userId: userResult.userId,
+        action: 'quote_created',
+        entityType: 'quote',
+        entityId: quoteResult.rows[0].id,
+        newValues: { name, phone, email, address, service },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      })
+    } catch (logErr) {
+      console.error('Failed to log activity:', logErr)
     }
 
     res.status(201).json({ 
@@ -302,6 +333,22 @@ app.patch('/api/quotes/:id', requireAuth, requireAdmin, async (req, res) => {
         'INSERT INTO quote_status_history (quote_id, status, notes, set_by_user_id) VALUES ($1, $2, $3, $4)',
         [req.params.id, status, notes || null, req.user.id]
       )
+
+      // Log activity
+      try {
+        await analytics.logActivity({
+          userId: req.user.id,
+          action: 'quote_status_updated',
+          entityType: 'quote',
+          entityId: parseInt(req.params.id),
+          oldValues: { status: existing.rows[0].status },
+          newValues: { status, notes },
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent')
+        })
+      } catch (logErr) {
+        console.error('Failed to log activity:', logErr)
+      }
     }
 
     res.json({ success: true, quote: result.rows[0] })
@@ -696,6 +743,22 @@ app.post('/api/businesses', requireAuth, requireAdmin, async (req, res) => {
       }
 
       await client.query('COMMIT')
+
+      // Log activity
+      try {
+        await analytics.logActivity({
+          userId: req.user.id,
+          action: 'business_created',
+          entityType: 'business',
+          entityId: businessId,
+          newValues: { name, categoryId, email, phone, address },
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent')
+        })
+      } catch (logErr) {
+        console.error('Failed to log activity:', logErr)
+      }
+
       res.status(201).json({ success: true, business: businessResult.rows[0] })
     } catch (err) {
       await client.query('ROLLBACK')
@@ -835,6 +898,21 @@ app.post('/api/quotes/:id/responses', requireAuth, requireAdmin, async (req, res
       console.error('Failed to send price response notification:', notifyErr)
     }
 
+    // Log activity
+    try {
+      await analytics.logActivity({
+        userId: req.user.id,
+        action: 'quote_price_sent',
+        entityType: 'quote_response',
+        entityId: result.rows[0].id,
+        newValues: { quoteId: parseInt(quoteId), price, businessId },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      })
+    } catch (logErr) {
+      console.error('Failed to log activity:', logErr)
+    }
+
     res.status(201).json({ success: true, response: result.rows[0] })
   } catch (err) {
     console.error('Create quote response error:', err)
@@ -924,6 +1002,22 @@ app.patch('/api/quote-responses/:id', requireAuth, async (req, res) => {
       } catch (notifyErr) {
         console.error('Failed to send schedule request notification:', notifyErr)
       }
+    }
+
+    // Log activity
+    try {
+      await analytics.logActivity({
+        userId: req.user.id,
+        action: status === 'approved' ? 'quote_approved' : 'quote_rejected',
+        entityType: 'quote_response',
+        entityId: parseInt(req.params.id),
+        oldValues: { status: quoteResponse.status },
+        newValues: { status },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      })
+    } catch (logErr) {
+      console.error('Failed to log activity:', logErr)
     }
 
     res.json({ success: true, status })
@@ -1096,6 +1190,21 @@ app.post('/api/appointments', requireAuth, async (req, res) => {
       )
     } catch (notifyErr) {
       console.error('Failed to send appointment confirmation:', notifyErr)
+    }
+
+    // Log activity
+    try {
+      await analytics.logActivity({
+        userId: req.user.id,
+        action: 'appointment_created',
+        entityType: 'appointment',
+        entityId: appointmentResult.rows[0].id,
+        newValues: { scheduledDate, startTime, endTime, businessId: quoteResponse.business_id },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      })
+    } catch (logErr) {
+      console.error('Failed to log activity:', logErr)
     }
 
     res.status(201).json({ success: true, appointment: appointmentResult.rows[0] })
@@ -1389,6 +1498,244 @@ app.get('/api/schedule/:responseId', async (req, res) => {
   } catch (err) {
     console.error('Get schedule page error:', err)
     res.status(500).json({ error: 'Failed to get scheduling info' })
+  }
+})
+
+// ===== ADMIN ANALYTICS ENDPOINTS =====
+
+// Dashboard summary - quick overview of key metrics
+app.get('/api/admin/analytics/dashboard', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const summary = await analytics.getDashboardSummary()
+    res.json(summary)
+  } catch (err) {
+    console.error('Dashboard analytics error:', err)
+    res.status(500).json({ error: 'Failed to get dashboard analytics' })
+  }
+})
+
+// Quote/Lead analytics
+app.get('/api/admin/analytics/quotes', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const [stats, byService, byDay, byHour] = await Promise.all([
+      analytics.getQuoteStats(startDate, endDate),
+      analytics.getQuotesByService(startDate, endDate),
+      analytics.getQuotesByDay(30),
+      analytics.getQuotesByHour()
+    ])
+    res.json({ stats, byService, byDay, byHour })
+  } catch (err) {
+    console.error('Quote analytics error:', err)
+    res.status(500).json({ error: 'Failed to get quote analytics' })
+  }
+})
+
+// Appointment analytics
+app.get('/api/admin/analytics/appointments', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const [stats, byBusiness, upcoming] = await Promise.all([
+      analytics.getAppointmentStats(startDate, endDate),
+      analytics.getAppointmentsByBusiness(startDate, endDate),
+      analytics.getUpcomingAppointments(10)
+    ])
+    res.json({ stats, byBusiness, upcoming })
+  } catch (err) {
+    console.error('Appointment analytics error:', err)
+    res.status(500).json({ error: 'Failed to get appointment analytics' })
+  }
+})
+
+// Revenue analytics
+app.get('/api/admin/analytics/revenue', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const revenue = await analytics.getRevenueStats(startDate, endDate)
+    res.json(revenue)
+  } catch (err) {
+    console.error('Revenue analytics error:', err)
+    res.status(500).json({ error: 'Failed to get revenue analytics' })
+  }
+})
+
+// Customer analytics
+app.get('/api/admin/analytics/customers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const customers = await analytics.getCustomerStats()
+    res.json(customers)
+  } catch (err) {
+    console.error('Customer analytics error:', err)
+    res.status(500).json({ error: 'Failed to get customer analytics' })
+  }
+})
+
+// Notification analytics
+app.get('/api/admin/analytics/notifications', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const notificationStats = await analytics.getNotificationStats(startDate, endDate)
+    res.json(notificationStats)
+  } catch (err) {
+    console.error('Notification analytics error:', err)
+    res.status(500).json({ error: 'Failed to get notification analytics' })
+  }
+})
+
+// Business analytics
+app.get('/api/admin/analytics/businesses', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const businesses = await analytics.getBusinessStats()
+    res.json(businesses)
+  } catch (err) {
+    console.error('Business analytics error:', err)
+    res.status(500).json({ error: 'Failed to get business analytics' })
+  }
+})
+
+// Activity log
+app.get('/api/admin/activity-log', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { userId, entityType, entityId, action, limit, offset } = req.query
+    const activities = await analytics.getActivityLog({
+      userId: userId ? parseInt(userId) : null,
+      entityType,
+      entityId: entityId ? parseInt(entityId) : null,
+      action,
+      limit: limit ? parseInt(limit) : 50,
+      offset: offset ? parseInt(offset) : 0
+    })
+    res.json({ activities })
+  } catch (err) {
+    console.error('Activity log error:', err)
+    res.status(500).json({ error: 'Failed to get activity log' })
+  }
+})
+
+// Export data (CSV format for download)
+app.get('/api/admin/export/quotes', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, format = 'json' } = req.query
+
+    let query = `
+      SELECT
+        q.id, q.name, q.phone, q.email, q.address, q.message, q.status,
+        s.name as service_name,
+        q.created_at, q.updated_at, q.accepted_at, q.completed_at
+      FROM quotes q
+      LEFT JOIN services s ON q.service_id = s.id
+      WHERE 1=1
+    `
+    const values = []
+    let paramIndex = 1
+
+    if (startDate) {
+      query += ` AND q.created_at >= $${paramIndex++}`
+      values.push(startDate)
+    }
+    if (endDate) {
+      query += ` AND q.created_at <= $${paramIndex++}`
+      values.push(endDate)
+    }
+
+    query += ' ORDER BY q.created_at DESC'
+
+    const result = await pool.query(query, values)
+
+    if (format === 'csv') {
+      const headers = ['ID', 'Name', 'Phone', 'Email', 'Address', 'Service', 'Status', 'Message', 'Created At']
+      const csvRows = [headers.join(',')]
+
+      result.rows.forEach(row => {
+        csvRows.push([
+          row.id,
+          `"${(row.name || '').replace(/"/g, '""')}"`,
+          `"${(row.phone || '').replace(/"/g, '""')}"`,
+          `"${(row.email || '').replace(/"/g, '""')}"`,
+          `"${(row.address || '').replace(/"/g, '""')}"`,
+          `"${(row.service_name || '').replace(/"/g, '""')}"`,
+          row.status,
+          `"${(row.message || '').replace(/"/g, '""')}"`,
+          row.created_at
+        ].join(','))
+      })
+
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', `attachment; filename=quotes-export-${new Date().toISOString().split('T')[0]}.csv`)
+      return res.send(csvRows.join('\n'))
+    }
+
+    res.json({ quotes: result.rows })
+  } catch (err) {
+    console.error('Export quotes error:', err)
+    res.status(500).json({ error: 'Failed to export quotes' })
+  }
+})
+
+app.get('/api/admin/export/appointments', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, format = 'json' } = req.query
+
+    let query = `
+      SELECT
+        a.id, a.scheduled_date, a.start_time, a.end_time, a.status,
+        q.name as customer_name, q.phone, q.email, q.address,
+        s.name as service_name,
+        b.name as business_name,
+        qr.price,
+        a.created_at, a.confirmed_at, a.completed_at, a.cancelled_at
+      FROM appointments a
+      JOIN quotes q ON a.quote_id = q.id
+      LEFT JOIN services s ON q.service_id = s.id
+      LEFT JOIN businesses b ON a.business_id = b.id
+      LEFT JOIN quote_responses qr ON a.quote_response_id = qr.id
+      WHERE 1=1
+    `
+    const values = []
+    let paramIndex = 1
+
+    if (startDate) {
+      query += ` AND a.scheduled_date >= $${paramIndex++}`
+      values.push(startDate)
+    }
+    if (endDate) {
+      query += ` AND a.scheduled_date <= $${paramIndex++}`
+      values.push(endDate)
+    }
+
+    query += ' ORDER BY a.scheduled_date DESC'
+
+    const result = await pool.query(query, values)
+
+    if (format === 'csv') {
+      const headers = ['ID', 'Date', 'Time', 'Customer', 'Phone', 'Email', 'Address', 'Service', 'Business', 'Price', 'Status']
+      const csvRows = [headers.join(',')]
+
+      result.rows.forEach(row => {
+        csvRows.push([
+          row.id,
+          row.scheduled_date,
+          `${row.start_time}-${row.end_time}`,
+          `"${(row.customer_name || '').replace(/"/g, '""')}"`,
+          `"${(row.phone || '').replace(/"/g, '""')}"`,
+          `"${(row.email || '').replace(/"/g, '""')}"`,
+          `"${(row.address || '').replace(/"/g, '""')}"`,
+          `"${(row.service_name || '').replace(/"/g, '""')}"`,
+          `"${(row.business_name || '').replace(/"/g, '""')}"`,
+          row.price || '',
+          row.status
+        ].join(','))
+      })
+
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', `attachment; filename=appointments-export-${new Date().toISOString().split('T')[0]}.csv`)
+      return res.send(csvRows.join('\n'))
+    }
+
+    res.json({ appointments: result.rows })
+  } catch (err) {
+    console.error('Export appointments error:', err)
+    res.status(500).json({ error: 'Failed to export appointments' })
   }
 })
 
