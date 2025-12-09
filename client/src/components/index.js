@@ -1,5 +1,5 @@
 // Component Registry - Import all components from here
-export { Logo, LogoMark } from './Logo'
+export { default as Logo, LogoMark } from './Logo'
 export { default as Modal } from './Modal'
 export { default as PageHeader } from './PageHeader'
 export { default as LeadForm } from './LeadForm'
