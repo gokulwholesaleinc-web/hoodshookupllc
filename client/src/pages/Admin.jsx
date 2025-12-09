@@ -7,15 +7,37 @@ function Admin() {
   const { token, logout } = useAuth()
   const navigate = useNavigate()
   const [leads, setLeads] = useState([])
+  const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedLead, setSelectedLead] = useState(null)
   const [forwardModal, setForwardModal] = useState(false)
-  const [forwardData, setForwardData] = useState({ method: 'email', contact: '' })
+  const [selectedProviderId, setSelectedProviderId] = useState('')
+  const [forwardMethod, setForwardMethod] = useState('email')
   const [stats, setStats] = useState({ total: 0, new: 0, contacted: 0, converted: 0 })
 
   useEffect(() => {
     fetchLeads()
+    fetchProviders()
   }, [token])
+
+  const fetchProviders = async () => {
+    try {
+      const response = await fetch('/api/providers', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setProviders(data.providers || [])
+      }
+    } catch (error) {
+      console.error('Error fetching providers:', error)
+    }
+  }
+
+  const handleLogout = () => {
+    logout()
+    navigate('/')
+  }
 
   const fetchLeads = async () => {
     try {
@@ -61,18 +83,18 @@ function Admin() {
   }
 
   const handleForward = async () => {
-    if (!selectedLead || !forwardData.contact) return
+    if (!selectedLead || !selectedProviderId) return
 
     try {
       await fetch(`/api/quotes/${selectedLead.id}/forward`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          method: forwardData.method,
-          contact: forwardData.contact
+          providerId: selectedProviderId,
+          method: forwardMethod
         })
       })
 
@@ -80,7 +102,7 @@ function Admin() {
       await updateLeadStatus(selectedLead.id, 'in_review')
       setForwardModal(false)
       setSelectedLead(null)
-      setForwardData({ method: 'email', contact: '' })
+      setSelectedProviderId('')
     } catch (error) {
       console.error('Error forwarding lead:', error)
     }
@@ -89,9 +111,10 @@ function Admin() {
   const getStatusColor = (status) => {
     switch (status) {
       case 'new': return 'bg-blue-100 text-blue-700'
-      case 'contacted': return 'bg-yellow-100 text-yellow-700'
-      case 'converted': return 'bg-green-100 text-green-700'
-      case 'closed': return 'bg-gray-100 text-gray-700'
+      case 'in_review': return 'bg-yellow-100 text-yellow-700'
+      case 'accepted': return 'bg-purple-100 text-purple-700'
+      case 'completed': return 'bg-green-100 text-green-700'
+      case 'cancelled': return 'bg-red-100 text-red-700'
       default: return 'bg-gray-100 text-gray-700'
     }
   }
@@ -120,13 +143,24 @@ function Admin() {
                 <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Manage leads and track performance</p>
               </div>
             </div>
-            <Link to="/" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg active:scale-95">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              <span className="hidden sm:inline">Back to Site</span>
-              <span className="sm:hidden">Site</span>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link to="/" className="text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-1.5 bg-gray-100 px-3 py-2 rounded-lg active:scale-95">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span className="hidden sm:inline">Back to Site</span>
+                <span className="sm:hidden">Site</span>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="text-red-600 hover:text-red-700 font-medium text-sm flex items-center gap-1.5 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg active:scale-95 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -188,9 +222,9 @@ function Admin() {
 
                     <div className="flex flex-wrap gap-2 mb-3">
                       <span className="inline-flex items-center px-2 py-1 rounded-lg bg-orange-50 text-orange-700 text-xs font-medium">
-                        {lead.service}
+                        {lead.service_name || lead.service}
                       </span>
-                      <span className="text-xs text-gray-400">{formatDate(lead.createdAt)}</span>
+                      <span className="text-xs text-gray-400">{formatDate(lead.created_at)}</span>
                     </div>
 
                     <div className="flex items-center gap-3 text-sm mb-3">
@@ -218,9 +252,10 @@ function Admin() {
                         className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white"
                       >
                         <option value="new">New</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="converted">Converted</option>
-                        <option value="closed">Closed</option>
+                        <option value="in_review">In Review</option>
+                        <option value="accepted">Accepted</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
                       </select>
                     </div>
                   </div>
@@ -249,7 +284,7 @@ function Admin() {
                         </td>
                         <td className="px-6 py-4">
                           <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-50 text-orange-700 text-sm font-medium">
-                            {lead.service}
+                            {lead.service_name || lead.service}
                           </span>
                         </td>
                         <td className="px-6 py-4">
@@ -262,7 +297,7 @@ function Admin() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
-                          {formatDate(lead.createdAt)}
+                          {formatDate(lead.created_at)}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
@@ -281,9 +316,10 @@ function Admin() {
                               className="text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white"
                             >
                               <option value="new">New</option>
-                              <option value="contacted">Contacted</option>
-                              <option value="converted">Converted</option>
-                              <option value="closed">Closed</option>
+                              <option value="in_review">In Review</option>
+                              <option value="accepted">Accepted</option>
+                              <option value="completed">Completed</option>
+                              <option value="cancelled">Cancelled</option>
                             </select>
                           </div>
                         </td>
@@ -330,17 +366,38 @@ function Admin() {
                 </div>
               </div>
 
+              {/* Select Provider */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Select Provider</label>
+                {providers.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No providers registered. Add providers first.</p>
+                ) : (
+                  <select
+                    value={selectedProviderId}
+                    onChange={(e) => setSelectedProviderId(e.target.value)}
+                    className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none text-base bg-white"
+                  >
+                    <option value="">Choose a provider...</option>
+                    {providers.map(provider => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name} - {provider.email || provider.phone}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               {/* Send Method */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Send via</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors ${forwardData.method === 'email' ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
+                  <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors ${forwardMethod === 'email' ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
                     <input
                       type="radio"
                       name="method"
                       value="email"
-                      checked={forwardData.method === 'email'}
-                      onChange={(e) => setForwardData({ ...forwardData, method: e.target.value })}
+                      checked={forwardMethod === 'email'}
+                      onChange={(e) => setForwardMethod(e.target.value)}
                       className="sr-only"
                     />
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -348,13 +405,13 @@ function Admin() {
                     </svg>
                     <span className="text-sm font-medium">Email</span>
                   </label>
-                  <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors ${forwardData.method === 'sms' ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
+                  <label className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-colors ${forwardMethod === 'sms' ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
                     <input
                       type="radio"
                       name="method"
                       value="sms"
-                      checked={forwardData.method === 'sms'}
-                      onChange={(e) => setForwardData({ ...forwardData, method: e.target.value })}
+                      checked={forwardMethod === 'sms'}
+                      onChange={(e) => setForwardMethod(e.target.value)}
                       className="sr-only"
                     />
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -363,21 +420,6 @@ function Admin() {
                     <span className="text-sm font-medium">SMS</span>
                   </label>
                 </div>
-              </div>
-
-              {/* Contact Input */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                  {forwardData.method === 'email' ? 'Provider Email' : 'Provider Phone'}
-                </label>
-                <input
-                  type={forwardData.method === 'email' ? 'email' : 'tel'}
-                  inputMode={forwardData.method === 'email' ? 'email' : 'tel'}
-                  value={forwardData.contact}
-                  onChange={(e) => setForwardData({ ...forwardData, contact: e.target.value })}
-                  className="w-full px-4 py-3.5 rounded-xl border border-gray-200 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none text-base"
-                  placeholder={forwardData.method === 'email' ? 'provider@example.com' : '(555) 123-4567'}
-                />
               </div>
 
               {/* Action Buttons */}
@@ -390,7 +432,7 @@ function Admin() {
                 </button>
                 <button
                   onClick={handleForward}
-                  disabled={!forwardData.contact}
+                  disabled={!selectedProviderId}
                   className="flex-1 py-3.5 px-4 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 active:scale-[0.98]"
                 >
                   Send Lead
