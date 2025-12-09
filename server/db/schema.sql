@@ -136,6 +136,18 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Quote Images (auto-delete after 30 days)
+CREATE TABLE IF NOT EXISTS quote_images (
+  id SERIAL PRIMARY KEY,
+  quote_id INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+  filename VARCHAR(255) NOT NULL,
+  original_name VARCHAR(255),
+  mime_type VARCHAR(50),
+  file_size INTEGER,
+  expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '30 days'),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_contact_methods_user ON contact_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_contact_methods_normalized ON contact_methods(type, normalized_value);
@@ -145,3 +157,5 @@ CREATE INDEX IF NOT EXISTS idx_invoices_user ON invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_quote ON invoices(quote_id);
 CREATE INDEX IF NOT EXISTS idx_otp_tokens_contact ON otp_tokens(contact_method_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_quote_images_quote ON quote_images(quote_id);
+CREATE INDEX IF NOT EXISTS idx_quote_images_expires ON quote_images(expires_at);

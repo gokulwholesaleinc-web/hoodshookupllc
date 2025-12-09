@@ -7,19 +7,45 @@ const pool = require('./db/pool')
 const { initDatabase } = require('./db/init')
 const { requestOTP, verifyOTP, loginBypass, normalizeContact } = require('./services/auth')
 const { requireAuth, requireAdmin } = require('./middleware/auth')
+const { noCache, longCache, htmlCache } = require('./middleware/cache')
+const { upload, deleteFile, uploadDir } = require('./middleware/upload')
 
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// App version for cache busting - update this when deploying new versions
+const APP_VERSION = process.env.APP_VERSION || Date.now().toString()
+
 app.use(cors())
 app.use(express.json())
 
+// Apply no-cache to all API routes by default
+app.use('/api', noCache)
+
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')))
+  // Static assets with hash in filename get long cache
+  app.use('/assets', longCache, express.static(path.join(__dirname, '../client/dist/assets')))
+
+  // Other static files (favicon, etc.) get short cache
+  app.use(express.static(path.join(__dirname, '../client/dist'), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+      }
+    }
+  }))
 }
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Version endpoint for cache busting - clients check this to see if they need to refresh
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: APP_VERSION,
+    buildTime: new Date().toISOString()
+  })
 })
 
 app.post('/api/auth/request-otp', async (req, res) => {
@@ -437,6 +463,114 @@ app.post('/api/quotes/:id/forward', requireAuth, requireAdmin, async (req, res) 
   }
 })
 
+// Image upload for quotes (up to 5 images, 5MB each)
+app.post('/api/quotes/:id/images', upload.array('images', 5), async (req, res) => {
+  try {
+    const quoteId = req.params.id
+
+    // Verify quote exists
+    const quote = await pool.query('SELECT id FROM quotes WHERE id = $1', [quoteId])
+    if (quote.rows.length === 0) {
+      // Clean up uploaded files
+      req.files?.forEach(file => deleteFile(file.filename))
+      return res.status(404).json({ error: 'Quote not found' })
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No images uploaded' })
+    }
+
+    const uploadedImages = []
+
+    for (const file of req.files) {
+      const result = await pool.query(
+        `INSERT INTO quote_images (quote_id, filename, original_name, mime_type, file_size)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [quoteId, file.filename, file.originalname, file.mimetype, file.size]
+      )
+      uploadedImages.push(result.rows[0])
+    }
+
+    res.status(201).json({
+      success: true,
+      images: uploadedImages,
+      message: `${uploadedImages.length} image(s) uploaded successfully`
+    })
+  } catch (err) {
+    console.error('Image upload error:', err)
+    // Clean up uploaded files on error
+    req.files?.forEach(file => deleteFile(file.filename))
+    res.status(500).json({ error: 'Failed to upload images' })
+  }
+})
+
+// Get images for a quote
+app.get('/api/quotes/:id/images', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, filename, original_name, mime_type, file_size, created_at FROM quote_images WHERE quote_id = $1 ORDER BY created_at',
+      [req.params.id]
+    )
+    res.json({ images: result.rows })
+  } catch (err) {
+    console.error('Get images error:', err)
+    res.status(500).json({ error: 'Failed to get images' })
+  }
+})
+
+// Serve uploaded images
+app.get('/api/uploads/:filename', (req, res) => {
+  const filePath = path.join(uploadDir, req.params.filename)
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'Image not found' })
+    }
+  })
+})
+
+// Delete image (admin only)
+app.delete('/api/images/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT filename FROM quote_images WHERE id = $1', [req.params.id])
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Image not found' })
+    }
+
+    const filename = result.rows[0].filename
+    deleteFile(filename)
+
+    await pool.query('DELETE FROM quote_images WHERE id = $1', [req.params.id])
+    res.json({ success: true, message: 'Image deleted' })
+  } catch (err) {
+    console.error('Delete image error:', err)
+    res.status(500).json({ error: 'Failed to delete image' })
+  }
+})
+
+// Cleanup expired images (called on server start and can be called periodically)
+async function cleanupExpiredImages() {
+  try {
+    const result = await pool.query(
+      'SELECT id, filename FROM quote_images WHERE expires_at < CURRENT_TIMESTAMP'
+    )
+
+    for (const image of result.rows) {
+      deleteFile(image.filename)
+    }
+
+    await pool.query('DELETE FROM quote_images WHERE expires_at < CURRENT_TIMESTAMP')
+
+    if (result.rows.length > 0) {
+      console.log(`Cleaned up ${result.rows.length} expired images`)
+    }
+  } catch (err) {
+    console.error('Image cleanup error:', err)
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupExpiredImages, 60 * 60 * 1000)
+
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../client/dist/index.html'))
@@ -445,6 +579,9 @@ if (process.env.NODE_ENV === 'production') {
 
 initDatabase()
   .then(() => {
+    // Run cleanup on startup
+    cleanupExpiredImages()
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://0.0.0.0:${PORT}`)
     })

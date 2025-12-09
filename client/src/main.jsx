@@ -6,6 +6,7 @@ import App from './App.jsx'
 import Admin from './pages/Admin.jsx'
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import UpdateBanner from './components/UpdateBanner.jsx'
 import './styles/index.css'
 
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -34,6 +35,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
+        <UpdateBanner />
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/login" element={<Login />} />

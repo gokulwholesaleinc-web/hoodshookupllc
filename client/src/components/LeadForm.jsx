@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+
+const MAX_IMAGES = 5
+const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 const services = [
   'Muffler & Exhaust',
@@ -34,14 +37,52 @@ function LeadForm({ service, onClose }) {
     service: service?.title || '',
     message: ''
   })
+  const [images, setImages] = useState([])
+  const [imagePreviews, setImagePreviews] = useState([])
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+  const fileInputRef = useRef(null)
+
+  const handleImageSelect = (e) => {
+    const files = Array.from(e.target.files)
+    const validFiles = []
+    const previews = []
+
+    for (const file of files) {
+      if (images.length + validFiles.length >= MAX_IMAGES) {
+        alert(`Maximum ${MAX_IMAGES} images allowed`)
+        break
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`${file.name} is too large. Maximum size is 5MB`)
+        continue
+      }
+      if (!file.type.startsWith('image/')) {
+        alert(`${file.name} is not an image`)
+        continue
+      }
+      validFiles.push(file)
+      previews.push(URL.createObjectURL(file))
+    }
+
+    setImages(prev => [...prev, ...validFiles])
+    setImagePreviews(prev => [...prev, ...previews])
+    e.target.value = '' // Reset input
+  }
+
+  const removeImage = (index) => {
+    URL.revokeObjectURL(imagePreviews[index])
+    setImages(prev => prev.filter((_, i) => i !== index))
+    setImagePreviews(prev => prev.filter((_, i) => i !== index))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
 
     try {
+      // First, create the quote
       const response = await fetch('/api/quotes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,12 +90,28 @@ function LeadForm({ service, onClose }) {
       })
 
       if (response.ok) {
+        const data = await response.json()
+        const quoteId = data.quote.id
+
+        // Then upload images if any
+        if (images.length > 0) {
+          setUploadProgress('Uploading images...')
+          const imageFormData = new FormData()
+          images.forEach(img => imageFormData.append('images', img))
+
+          await fetch(`/api/quotes/${quoteId}/images`, {
+            method: 'POST',
+            body: imageFormData
+          })
+        }
+
         setSubmitted(true)
       }
     } catch (error) {
       console.error('Error submitting form:', error)
     } finally {
       setLoading(false)
+      setUploadProgress('')
     }
   }
 
@@ -223,6 +280,67 @@ function LeadForm({ service, onClose }) {
                 />
               </div>
 
+              {/* Image Upload */}
+              <div>
+                <label className="block text-sm font-semibold text-stone-700 mb-1.5">
+                  Photos (optional)
+                  <span className="font-normal text-stone-500 ml-1">- helps us give accurate quotes</span>
+                </label>
+
+                {/* Image Previews */}
+                {imagePreviews.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {imagePreviews.map((preview, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="w-20 h-20 object-cover rounded-lg border border-stone-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md hover:bg-red-600 active:scale-95"
+                        >
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Upload Button */}
+                {images.length < MAX_IMAGES && (
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-3 px-4 border-2 border-dashed border-stone-300 rounded-xl text-stone-600 hover:border-amber-400 hover:text-amber-600 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-sm font-medium">
+                        Add Photos ({images.length}/{MAX_IMAGES})
+                      </span>
+                    </button>
+                    <p className="text-xs text-stone-400 mt-1.5 text-center">
+                      Max 5MB per image. Auto-deleted after 30 days.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Sticky submit button on mobile */}
               <div className="sticky bottom-0 bg-white pt-3 pb-1 -mx-4 sm:-mx-6 px-4 sm:px-6 border-t border-stone-100 sm:border-0 sm:static sm:pt-2 sm:pb-0">
                 <button
@@ -236,10 +354,17 @@ function LeadForm({ service, onClose }) {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Sending...
+                      {uploadProgress || 'Sending...'}
                     </>
                   ) : (
-                    'Send Request'
+                    <>
+                      Send Request
+                      {images.length > 0 && (
+                        <span className="text-amber-700 text-sm ml-1">
+                          ({images.length} photo{images.length > 1 ? 's' : ''})
+                        </span>
+                      )}
+                    </>
                   )}
                 </button>
 

@@ -34,3 +34,7 @@ coverage/
 # Misc
 *.local
 .cache/
+
+# Uploaded files
+server/uploads/*
+!server/uploads/.gitkeep
