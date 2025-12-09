@@ -7,7 +7,7 @@
     "server": "node server/index.js",
     "client": "cd client && npm run dev",
     "install:all": "npm install && cd client && npm install",
-    "build": "cd client && npm install && npm run build",
+    "build": "npm install && cd client && npm install && npm run build",
     "start": "NODE_ENV=production PORT=5000 node server/index.js"
   },
   "dependencies": {
