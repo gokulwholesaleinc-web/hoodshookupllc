@@ -1501,6 +1501,132 @@ app.get('/api/schedule/:responseId', async (req, res) => {
   }
 })
 
+// ===== CHAT/MESSAGING ENDPOINTS =====
+
+// Get messages for a quote (both admin and customer can view)
+app.get('/api/quotes/:quoteId/messages', requireAuth, async (req, res) => {
+  try {
+    const { quoteId } = req.params
+    const userId = req.user.id
+    const isAdmin = req.user.role === 'admin'
+
+    // Check if user has access to this quote
+    if (!isAdmin) {
+      const quoteCheck = await pool.query('SELECT user_id FROM quotes WHERE id = $1', [quoteId])
+      if (quoteCheck.rows.length === 0 || quoteCheck.rows[0].user_id !== userId) {
+        return res.status(403).json({ error: 'Access denied' })
+      }
+    }
+
+    const result = await pool.query(
+      `SELECT m.*, u.role as sender_role
+       FROM messages m
+       LEFT JOIN users u ON m.sender_id = u.id
+       WHERE m.quote_id = $1
+       ORDER BY m.created_at ASC`,
+      [quoteId]
+    )
+
+    // Mark messages as read for the current user
+    const senderType = isAdmin ? 'customer' : 'admin'
+    await pool.query(
+      `UPDATE messages SET read_at = CURRENT_TIMESTAMP
+       WHERE quote_id = $1 AND sender_type = $2 AND read_at IS NULL`,
+      [quoteId, senderType]
+    )
+
+    res.json({ messages: result.rows })
+  } catch (err) {
+    console.error('Get messages error:', err)
+    res.status(500).json({ error: 'Failed to get messages' })
+  }
+})
+
+// Send a message
+app.post('/api/quotes/:quoteId/messages', requireAuth, async (req, res) => {
+  try {
+    const { quoteId } = req.params
+    const { content } = req.body
+    const userId = req.user.id
+    const isAdmin = req.user.role === 'admin'
+
+    if (!content?.trim()) {
+      return res.status(400).json({ error: 'Message content is required' })
+    }
+
+    // Check if user has access to this quote
+    if (!isAdmin) {
+      const quoteCheck = await pool.query('SELECT user_id FROM quotes WHERE id = $1', [quoteId])
+      if (quoteCheck.rows.length === 0 || quoteCheck.rows[0].user_id !== userId) {
+        return res.status(403).json({ error: 'Access denied' })
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO messages (quote_id, sender_id, sender_type, content)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [quoteId, userId, isAdmin ? 'admin' : 'customer', content.trim()]
+    )
+
+    // Log activity
+    await analytics.logActivity(userId, 'message_sent', 'message', result.rows[0].id, null, { quote_id: quoteId })
+
+    res.json({ message: result.rows[0] })
+  } catch (err) {
+    console.error('Send message error:', err)
+    res.status(500).json({ error: 'Failed to send message' })
+  }
+})
+
+// Get unread message count (for notifications)
+app.get('/api/messages/unread-count', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id
+    const isAdmin = req.user.role === 'admin'
+    const senderType = isAdmin ? 'customer' : 'admin'
+
+    let query, values
+    if (isAdmin) {
+      // Admin sees all unread customer messages
+      query = `SELECT COUNT(*) FROM messages WHERE sender_type = $1 AND read_at IS NULL`
+      values = [senderType]
+    } else {
+      // Customer sees unread admin messages on their quotes
+      query = `SELECT COUNT(*) FROM messages m
+               JOIN quotes q ON m.quote_id = q.id
+               WHERE m.sender_type = $1 AND m.read_at IS NULL AND q.user_id = $2`
+      values = [senderType, userId]
+    }
+
+    const result = await pool.query(query, values)
+    res.json({ count: parseInt(result.rows[0].count) })
+  } catch (err) {
+    console.error('Get unread count error:', err)
+    res.status(500).json({ error: 'Failed to get unread count' })
+  }
+})
+
+// Get quotes with unread messages (for admin notification badge)
+app.get('/api/admin/quotes-with-messages', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT q.id, q.name, q.status, q.created_at,
+              COUNT(m.id) FILTER (WHERE m.read_at IS NULL AND m.sender_type = 'customer') as unread_count,
+              MAX(m.created_at) as last_message_at
+       FROM quotes q
+       LEFT JOIN messages m ON q.id = m.quote_id
+       GROUP BY q.id
+       HAVING COUNT(m.id) > 0
+       ORDER BY last_message_at DESC`
+    )
+    res.json({ quotes: result.rows })
+  } catch (err) {
+    console.error('Get quotes with messages error:', err)
+    res.status(500).json({ error: 'Failed to get quotes with messages' })
+  }
+})
+
 // ===== ADMIN ANALYTICS ENDPOINTS =====
 
 // Dashboard summary - quick overview of key metrics

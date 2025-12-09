@@ -293,6 +293,17 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Messages/Chat (simple messaging system between admin and customers)
+CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  quote_id INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+  sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  sender_type VARCHAR(20) NOT NULL CHECK (sender_type IN ('admin', 'customer')),
+  content TEXT NOT NULL,
+  read_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_contact_methods_user ON contact_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_contact_methods_normalized ON contact_methods(type, normalized_value);
@@ -321,3 +332,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_log_status ON notification_log(statu
 CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON activity_log(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_quote ON messages(quote_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
