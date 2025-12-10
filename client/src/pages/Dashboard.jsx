@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { LogoMark } from '../components/Logo'
+import ChatDrawer from '../components/ChatDrawer'
 
 function Dashboard() {
   const { user, token, logout } = useAuth()
@@ -10,9 +11,15 @@ function Dashboard() {
   const [invoices, setInvoices] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('quotes')
+  const [chatQuote, setChatQuote] = useState(null)
+  const [unreadCounts, setUnreadCounts] = useState({})
 
   useEffect(() => {
     fetchData()
+    fetchUnreadCounts()
+    // Poll for unread counts every 30 seconds
+    const interval = setInterval(fetchUnreadCounts, 30000)
+    return () => clearInterval(interval)
   }, [token])
 
   const fetchData = async () => {
@@ -40,6 +47,26 @@ function Dashboard() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchUnreadCounts = async () => {
+    try {
+      const res = await fetch('/api/users/me/unread-messages', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setUnreadCounts(data.unreadByQuote || {})
+      }
+    } catch (error) {
+      console.error('Error fetching unread counts:', error)
+    }
+  }
+
+  const handleOpenChat = (quote) => {
+    setChatQuote(quote)
+    // Clear unread count for this quote when opening chat
+    setUnreadCounts(prev => ({ ...prev, [quote.id]: 0 }))
   }
 
   const handleLogout = () => {
@@ -172,12 +199,26 @@ function Dashboard() {
                       {quote.status.replace('_', ' ')}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-stone-400">{formatDate(quote.created_at)}</span>
                     {quote.message && (
                       <span className="text-stone-500 truncate max-w-[200px]">{quote.message}</span>
                     )}
                   </div>
+                  <button
+                    onClick={() => handleOpenChat(quote)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-900 font-semibold text-sm transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    Messages
+                    {unreadCounts[quote.id] > 0 && (
+                      <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                        {unreadCounts[quote.id]}
+                      </span>
+                    )}
+                  </button>
                 </div>
               ))
             )}
@@ -224,6 +265,17 @@ function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* Chat Drawer */}
+      <ChatDrawer
+        quoteId={chatQuote?.id}
+        quoteName={chatQuote ? `${chatQuote.service_name || chatQuote.service} - ${chatQuote.address}` : ''}
+        isOpen={!!chatQuote}
+        onClose={() => {
+          setChatQuote(null)
+          fetchUnreadCounts() // Refresh counts after closing
+        }}
+      />
     </div>
   )
 }

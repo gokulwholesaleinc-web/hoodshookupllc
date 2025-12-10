@@ -375,6 +375,30 @@ app.get('/api/users/me/invoices', requireAuth, async (req, res) => {
   }
 })
 
+// Get unread message counts per quote for customer
+app.get('/api/users/me/unread-messages', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT m.quote_id, COUNT(*) as unread_count
+       FROM messages m
+       JOIN quotes q ON m.quote_id = q.id
+       WHERE q.user_id = $1
+         AND m.sender_type = 'admin'
+         AND m.read_at IS NULL
+       GROUP BY m.quote_id`,
+      [req.user.id]
+    )
+    const unreadByQuote = {}
+    result.rows.forEach(row => {
+      unreadByQuote[row.quote_id] = parseInt(row.unread_count)
+    })
+    res.json({ unreadByQuote })
+  } catch (err) {
+    console.error('Get unread messages error:', err)
+    res.status(500).json({ error: 'Failed to get unread messages' })
+  }
+})
+
 app.get('/api/invoices/:id', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
